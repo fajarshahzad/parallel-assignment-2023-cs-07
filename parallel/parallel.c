@@ -1,15 +1,16 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <string.h>
 
-#define STR_LEN 16
-
-void merge(char **arr, char **temp, int low, int mid, int high) {
+// Standard Merge for integers
+void merge(int *arr, int *temp, int low, int mid, int high) {
     int i = low, j = mid + 1, k = low;
     while (i <= mid && j <= high) {
-        if (strcmp(arr[i], arr[j]) <= 0) temp[k++] = arr[i++];
+        if (arr[i] <= arr[j]) temp[k++] = arr[i++];
         else temp[k++] = arr[j++];
     }
     while (i <= mid) temp[k++] = arr[i++];
@@ -17,7 +18,7 @@ void merge(char **arr, char **temp, int low, int mid, int high) {
     for (i = low; i <= high; i++) arr[i] = temp[i];
 }
 
-void merge_sort(char **arr, char **temp, int low, int high) {
+void merge_sort(int *arr, int *temp, int low, int high) {
     if (low < high) {
         int mid = low + (high - low) / 2;
         merge_sort(arr, temp, low, mid);
@@ -26,76 +27,83 @@ void merge_sort(char **arr, char **temp, int low, int high) {
     }
 }
 
+void print_array(int *arr, int n, const char *msg) {
+    printf("%s", msg);
+    if (n > 20) {
+        printf("[Array too large to print fully]\n");
+        return;
+    }
+    for (int i = 0; i < n; i++) printf("%d ", arr[i]);
+    printf("\n");
+}
+
 int main(int argc, char** argv) {
-    int rank, size, n = 1000, opt;
+    int rank, size, n = 0;
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    while ((opt = getopt(argc, argv, "n:p:")) != -1) {
-        if (opt == 'n') n = atoi(optarg);
+    if (rank == 0) {
+        printf("Enter array size: ");
+        if (scanf("%d", &n) != 1 || n <= 0) {
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
     }
+
+    // Broadcast size to all processes
+    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     int local_n = n / size;
-    char *local_buffer = malloc(local_n * STR_LEN);
-    char **local_ptr = malloc(local_n * sizeof(char*));
+    int *local_data = malloc(local_n * sizeof(int));
+    int *full_data = NULL;
 
     if (rank == 0) {
-        char *full_buffer = malloc(n * STR_LEN);
-        srand(42); 
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < STR_LEN - 1; j++) full_buffer[i * STR_LEN + j] = 'A' + (rand() % 26);
-            full_buffer[i * STR_LEN + STR_LEN - 1] = '\0';
-        }
-
-        // Point-to-Point Distribution
-        for (int i = 1; i < size; i++) {
-            MPI_Send(full_buffer + (i * local_n * STR_LEN), local_n * STR_LEN, MPI_CHAR, i, 0, MPI_COMM_WORLD);
-        }
-        memcpy(local_buffer, full_buffer, local_n * STR_LEN);
-        free(full_buffer);
-    } else {
-        MPI_Recv(local_buffer, local_n * STR_LEN, MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        full_data = malloc(n * sizeof(int));
+        srand(time(NULL));
+        for (int i = 0; i < n; i++) full_data[i] = rand() % 1000;
+        
+        print_array(full_data, n, "\n--- Original Array ---\n");
     }
+
+    // Distribute data
+    MPI_Scatter(full_data, local_n, MPI_INT, local_data, local_n, MPI_INT, 0, MPI_COMM_WORLD);
 
     MPI_Barrier(MPI_COMM_WORLD);
     double start_time = MPI_Wtime();
 
-    for (int i = 0; i < local_n; i++) local_ptr[i] = local_buffer + (i * STR_LEN);
-    char **temp_ptr = malloc(local_n * sizeof(char*));
-
     // Local Sort
-    merge_sort(local_ptr, temp_ptr, 0, local_n - 1);
+    int *temp = malloc(local_n * sizeof(int));
+    merge_sort(local_data, temp, 0, local_n - 1);
+    free(temp);
 
     // Tree-based Merging
     int step = 1;
     while (step < size) {
         if (rank % (2 * step) == 0) {
             if (rank + step < size) {
-                int recv_count = local_n * step;
-                char *recv_buf = malloc(recv_count * STR_LEN);
-                MPI_Recv(recv_buf, recv_count * STR_LEN, MPI_CHAR, rank + step, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                int recv_size = local_n * step;
+                int *recv_buf = malloc(recv_size * sizeof(int));
+                MPI_Recv(recv_buf, recv_size, MPI_INT, rank + step, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 
-                int total_elements = recv_count * 2;
-                char *new_buffer = malloc(total_elements * STR_LEN);
+                int total_size = recv_size * 2;
+                int *merged_buf = malloc(total_size * sizeof(int));
                 
+                // Merge two sorted halves
                 int i = 0, j = 0, k = 0;
-                while (i < recv_count && j < recv_count) {
-                    if (strcmp(local_ptr[i], recv_buf + (j * STR_LEN)) <= 0) 
-                        memcpy(new_buffer + (k++ * STR_LEN), local_ptr[i++], STR_LEN);
-                    else 
-                        memcpy(new_buffer + (k++ * STR_LEN), recv_buf + (j++ * STR_LEN), STR_LEN);
+                while (i < recv_size && j < recv_size) {
+                    if (local_data[i] <= recv_buf[j]) merged_buf[k++] = local_data[i++];
+                    else merged_buf[k++] = recv_buf[j++];
                 }
-                while (i < recv_count) memcpy(new_buffer + (k++ * STR_LEN), local_ptr[i++], STR_LEN);
-                while (j < recv_count) memcpy(new_buffer + (k++ * STR_LEN), recv_buf + (j++ * STR_LEN), STR_LEN);
+                while (i < recv_size) merged_buf[k++] = local_data[i++];
+                while (j < recv_size) merged_buf[k++] = recv_buf[j++];
 
-                free(local_buffer); free(local_ptr); free(recv_buf);
-                local_buffer = new_buffer;
-                local_ptr = malloc(total_elements * sizeof(char*));
-                for(int m=0; m<total_elements; m++) local_ptr[m] = local_buffer + (m * STR_LEN);
+                free(local_data);
+                free(recv_buf);
+                local_data = merged_buf;
             }
         } else {
-            MPI_Send(local_buffer, local_n * step * STR_LEN, MPI_CHAR, rank - step, 0, MPI_COMM_WORLD);
+            int send_size = local_n * step;
+            MPI_Send(local_data, send_size, MPI_INT, rank - step, 0, MPI_COMM_WORLD);
             break;
         }
         step *= 2;
@@ -103,17 +111,35 @@ int main(int argc, char** argv) {
 
     if (rank == 0) {
         double end_time = MPI_Wtime();
-        printf("--- Parallel Result ---\n");
-        printf("Processes Used: %d\n", size);
-        printf("Execution Time: %f seconds\n", end_time - start_time);
+        double time_taken = end_time - start_time;
+
+        print_array(local_data, n, "\n--- Sorted Array ---\n");
+
+        // Metrics (Note: Speedup/Efficiency requires sequential time. 
+        // Here we show results for the current P processes)
+        printf("\n--- Parallel Performance ---\n");
+        printf("Processes (P)   : %d\n", size);
+        printf("Execution Time  : %f seconds\n", time_taken);
+
+        // CSV Logging
+        const char *dir_path = "../results";
+        const char *file_path = "../results/parallel_results.csv";
         
-        int sorted = 1;
-        for (int i = 0; i < n - 1; i++) {
-            if (strcmp(local_ptr[i], local_ptr[i+1]) > 0) { sorted = 0; break; }
+        struct stat st = {0};
+        if (stat(dir_path, &st) == -1) mkdir(dir_path, 0777);
+
+        FILE *fp = fopen(file_path, "a");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            if (ftell(fp) == 0) fprintf(fp, "Processes,Size,Time\n");
+            fprintf(fp, "%d,%d,%f\n", size, n, time_taken);
+            fclose(fp);
+            printf("Saved to %s\n", file_path);
         }
-        printf("Verification: %s\n", sorted ? "PASSED" : "FAILED");
     }
 
+    if (rank == 0) free(full_data);
+    free(local_data);
     MPI_Finalize();
     return 0;
 }
