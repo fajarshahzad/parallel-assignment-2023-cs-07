@@ -2,7 +2,6 @@
 
 ### 2. Parallel README (`parallel/README.md`)
 
-```markdown
 # Parallel Assignment: String Merge Sort (Parallel MPI)
 
 ## Student Information
