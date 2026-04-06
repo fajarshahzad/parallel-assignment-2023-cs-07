@@ -1,27 +1,45 @@
+#  Parallel Assignment: String Merge Sort (Sequential)
+
+<p align="center">
+  <b>Baseline Implementation for Performance Comparison</b>
+</p>
+
 ---
 
-### 2. Parallel README (`parallel/README.md`)
+##  Student Information
 
-```markdown
-# Parallel Assignment: String Merge Sort (Parallel MPI)
+| Field        | Details            |
+|-------------|--------------------|
+| Name        | Fajar Shahzad      |
+| Roll Number | 2023-CS-07         |
 
-## Student Information
-- Name: Fajar Shahzad
-- Roll Number: 2023-CS-07
+---
 
-## Problem Description
-This is the parallel implementation of **String Merge Sort** using the **Message Passing Interface (MPI)**. 
+##  Overview
+This module implements a **Sequential Merge Sort** for sorting randomly generated strings.  
+It serves as a **baseline** to evaluate the performance improvements of the parallel version.
 
-The strategy utilizes **Point-to-Point communication** (`MPI_Send` and `MPI_Recv`) to distribute data. The problem is parallelized by:
-1. Dividing the main string array into equal chunks.
-2. Sending chunks from the Master (Rank 0) to Worker processes.
-3. Each process sorts its local chunk using a sequential merge sort.
-4. Using a **Tree-based Merge** strategy where processes pair up to merge their sorted results until the final sorted array reaches the Master.
+---
 
-## How to Run
-### Parallel Version
+##  Problem Description
+The task is to sort an array of **fixed-length random strings** using Merge Sort.
 
-**1. Compilation:**
-Use the MPI compiler wrapper (`mpicc`):
+###  Why Merge Sort?
+- Stable sorting algorithm  
+- Time complexity: **O(N log N)**  
+- Based on **Divide and Conquer**  
+- Efficient for large datasets  
+
+###  Why Strings Instead of Integers?
+Sorting strings using `strcmp()`:
+- Involves **character-by-character comparison**
+- More **CPU-intensive**
+- Provides a better benchmark for parallel performance
+
+---
+
+##  How to Run
+
+###  Compilation
 ```bash
-mpicc -o par_sort parallel.c
+gcc -o seq_sort sequential.c
