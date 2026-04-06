@@ -1,3 +1,0 @@
-Size,Processes,T_Sequential,T_Parallel,Speedup,Efficiency
-0,16,0.000000,0.000212,0.001032,0.000065
-0,4,0.000000,0.000020,0.010084,0.002521

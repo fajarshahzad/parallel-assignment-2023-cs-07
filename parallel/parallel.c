@@ -4,8 +4,9 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <unistd.h>
 
-// Standard Merge function
+// Standard Merge function for two sorted halves
 void merge(int *arr, int *temp, int low, int mid, int high) {
     int i = low, j = mid + 1, k = low;
     while (i <= mid && j <= high) {
@@ -17,7 +18,7 @@ void merge(int *arr, int *temp, int low, int mid, int high) {
     for (i = low; i <= high; i++) arr[i] = temp[i];
 }
 
-// Recursive Merge Sort
+// Recursive Merge Sort function
 void merge_sort(int *arr, int *temp, int low, int high) {
     if (low < high) {
         int mid = low + (high - low) / 2;
@@ -28,53 +29,53 @@ void merge_sort(int *arr, int *temp, int low, int high) {
 }
 
 int main(int argc, char** argv) {
-    int rank, size, n = 100000; 
+    int rank, size, n = 100000;
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    // Get array size from argument or default
     if (argc > 1) n = atoi(argv[1]);
+
+    // Error check for divisibility
+    if (n % size != 0) {
+        if (rank == 0) printf("Error: Array size %d must be divisible by %d processes.\n", n, size);
+        MPI_Finalize();
+        return 0;
+    }
 
     int local_n = n / size;
     int *local_data = malloc(local_n * sizeof(int));
     int *full_data = NULL;
-    double t_sequential = 0.0;
 
     if (rank == 0) {
         full_data = malloc(n * sizeof(int));
         srand(time(NULL));
         for (int i = 0; i < n; i++) full_data[i] = rand() % 10000;
-
-        // Calculate Sequential Time (Ts) for Speedup baseline
-        int *temp_seq = malloc(n * sizeof(int));
-        int *copy_seq = malloc(n * sizeof(int));
-        memcpy(copy_seq, full_data, n * sizeof(int));
-        
-        double start_seq = MPI_Wtime();
-        merge_sort(copy_seq, temp_seq, 0, n - 1);
-        t_sequential = MPI_Wtime() - start_seq;
-
-        free(temp_seq);
-        free(copy_seq);
+        printf("Parallel sorting started for N=%d on P=%d\n", n, size);
     }
 
-    // Distribute data
+    // --- Start Parallel Timing ---
+    // Start timing after data generation but including Scatter
+    MPI_Barrier(MPI_COMM_WORLD);
+    double start_time = MPI_Wtime();
+
+    // 1. Distribute data
     MPI_Scatter(full_data, local_n, MPI_INT, local_data, local_n, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // --- Start Parallel Timing ---
-    MPI_Barrier(MPI_COMM_WORLD);
-    double start_p = MPI_Wtime();
-
+    // 2. Local Sort
     int *temp_local = malloc(local_n * sizeof(int));
     merge_sort(local_data, temp_local, 0, local_n - 1);
     free(temp_local);
 
+    // 3. Tree-based Merging
     int step = 1;
     while (step < size) {
         if (rank % (2 * step) == 0) {
             if (rank + step < size) {
                 int current_size = local_n * step;
                 int *recv_buf = malloc(current_size * sizeof(int));
+                
                 MPI_Recv(recv_buf, current_size, MPI_INT, rank + step, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 
                 int *merged_buf = malloc(current_size * 2 * sizeof(int));
@@ -92,34 +93,37 @@ int main(int argc, char** argv) {
             }
         } else {
             MPI_Send(local_data, local_n * step, MPI_INT, rank - step, 0, MPI_COMM_WORLD);
-            break;
+            break; 
         }
         step *= 2;
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
-    double end_p = MPI_Wtime();
+    double end_time = MPI_Wtime();
     // --- End Parallel Timing ---
 
     if (rank == 0) {
-        double t_parallel = end_p - start_p;
-        double speedup = t_sequential / t_parallel;
-        double efficiency = speedup / size;
+        double time_taken = end_time - start_time;
+        printf("Parallel Execution Time: %f seconds\n", time_taken);
 
-        printf("\n--- Results ---\n");
-        printf("Size: %d | Procs: %d\n", n, size);
-        printf("Parallel Time: %f s\n", t_parallel);
-        printf("Speedup: %.2f | Efficiency: %.2f\n", speedup, efficiency);
+        // --- CSV Logging in Project Root ---
+        const char *dir_path = "../results";
+        const char *file_path = "../results/parallel_results.csv";
+        
+        struct stat st = {0};
+        if (stat(dir_path, &st) == -1) {
+            mkdir(dir_path, 0777);
+        }
 
-        // CSV Logging
-        mkdir("results", 0777); 
-        FILE *fp = fopen("results/parralel_performance.csv", "a");
+        FILE *fp = fopen(file_path, "a");
         if (fp) {
             fseek(fp, 0, SEEK_END);
-            if (ftell(fp) == 0) fprintf(fp, "Size,Processes,T_Sequential,T_Parallel,Speedup,Efficiency\n");
-            fprintf(fp, "%d,%d,%f,%f,%f,%f\n", n, size, t_sequential, t_parallel, speedup, efficiency);
+            if (ftell(fp) == 0) {
+                fprintf(fp, "Size,Processes,Parallel_Time\n");
+            }
+            fprintf(fp, "%d,%d,%f\n", n, size, time_taken);
             fclose(fp);
-            printf("Metrics saved to results/parralel_performance.csv\n");
+            printf("Results saved to %s\n", file_path);
         }
         free(full_data);
     }
