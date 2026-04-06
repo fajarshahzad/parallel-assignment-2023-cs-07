@@ -1,39 +1,45 @@
+#  Parallel Assignment: String Merge Sort (Sequential)
+
+<p align="center">
+  <b>Baseline Implementation for Performance Comparison</b>
+</p>
 
 ---
 
-# 📁 `parallel/README.md`
+##  Student Information
 
-```markdown
-# Parallel Assignment: String Merge Sort (Parallel MPI)
-
-## Student Information
-- **Name:** Fajar Shahzad
-- **Roll Number:** 2023-CS-07
+| Field        | Details            |
+|-------------|--------------------|
+| Name        | Fajar Shahzad      |
+| Roll Number | 2023-CS-07         |
 
 ---
 
-## Problem Description
-This is the parallel implementation of **String Merge Sort** using **MPI (Message Passing Interface)**. It utilizes manual data distribution and a tree-based merging strategy.
+##  Overview
+This module implements a **Sequential Merge Sort** for sorting randomly generated strings.  
+It serves as a **baseline** to evaluate the performance improvements of the parallel version.
 
 ---
 
-## Parallelization Strategy
+##  Problem Description
+The task is to sort an array of **fixed-length random strings** using Merge Sort.
 
-1. **Data Distribution:**  
-   The Master (Rank 0) generates the global string array and uses **Point-to-Point communication** (`MPI_Send`) to distribute equal chunks to all worker processes.
+###  Why Merge Sort?
+- Stable sorting algorithm  
+- Time complexity: **O(N log N)**  
+- Based on **Divide and Conquer**  
+- Efficient for large datasets  
 
-2. **Local Sorting:**  
-   Each process (including Rank 0) sorts its assigned chunk using a local sequential Merge Sort.
-
-3. **Tree-based Merge:**  
-   Processes pair up using `MPI_Send` and `MPI_Recv` to merge their results hierarchically. This **tree reduction** continues until the final sorted array reaches Rank 0.
+###  Why Strings Instead of Integers?
+Sorting strings using `strcmp()`:
+- Involves **character-by-character comparison**
+- More **CPU-intensive**
+- Provides a better benchmark for parallel performance
 
 ---
 
-## How to Run
+##  How to Run
 
-### 1. Compilation
-Use the MPI compiler wrapper:
-
+###  Compilation
 ```bash
-mpicc -o par_sort parallel.c
+gcc -o seq_sort sequential.c
